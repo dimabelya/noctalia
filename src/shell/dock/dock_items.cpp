@@ -39,6 +39,8 @@ namespace {
   constexpr float kDotSizeRatio = 0.09F;
   constexpr float kDotMinSize = 4.0F;
   constexpr float kDotGap = 3.0F;
+  // Past this many windows the dots stop being countable; the badge takes over.
+  constexpr std::size_t kMaxDots = 3;
   constexpr float kCellPad = 6.0F;
   constexpr float kLauncherGlyphSizeRatio = 0.8F;
   constexpr float kHoverZoomLerp = 0.28F;
@@ -843,7 +845,7 @@ namespace shell::dock {
       const std::size_t count = model.instanceCount;
 
       if (cfg.showDots) {
-        const std::size_t dotCount = std::min<std::size_t>(count, 3);
+        const std::size_t dotCount = count > kMaxDots ? 0 : count;
         const auto iSize = static_cast<float>(cfg.iconSize);
         const float cellMain = iSize + 2.0F * kCellPad;
         const float dot = std::max(kDotMinSize, std::round(iSize * kDotSizeRatio));
@@ -874,7 +876,7 @@ namespace shell::dock {
       }
 
       if (item.badge != nullptr && item.badgeLabel != nullptr) {
-        const bool show = count >= 2;
+        const bool show = cfg.showDots ? count > kMaxDots : count >= 2;
         item.badge->setVisible(show);
         item.badgeLabel->setVisible(show);
         if (show) {
