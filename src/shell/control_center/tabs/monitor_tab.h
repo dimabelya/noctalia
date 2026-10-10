@@ -31,6 +31,8 @@ private:
   void doLayout(Renderer& renderer, float contentWidth, float bodyHeight) override;
   void doUpdate(Renderer& renderer) override;
   void syncHeaderActions();
+  void toggleSyncAllMonitors();
+  [[nodiscard]] bool syncToggleRelevant() const;
   void rebuildCards(Renderer& renderer);
   void queueBrightness(const std::string& displayId, float value);
   void flushPendingBrightness(bool force = false);
@@ -56,6 +58,7 @@ private:
   ScrollView* m_cardsScroll = nullptr;
   Flex* m_cardsLayout = nullptr;
   Button* m_rescanButton = nullptr;
+  Button* m_syncAllButton = nullptr;
   std::vector<DisplayCard> m_cards;
   std::string m_lastDisplayListKey;
 
@@ -66,5 +69,6 @@ private:
   std::chrono::steady_clock::time_point m_ignoreStateUntil;
   Timer m_debounceTimer;
   bool m_syncingSlider = false;
+  bool m_syncAllMonitors = false;
   bool m_active = false;
 };

@@ -287,6 +287,8 @@
       "disabled": "Disabled",
       "no-displays": "No monitors available",
       "rescan": "Rescan DDC/CI monitors",
+      "sync-all-off": "Brightness set per monitor. Click to move all monitors together.",
+      "sync-all-on": "All monitors move together. Click to set brightness per monitor.",
       "unknown-resolution": "Unknown resolution"
     },
     "home": {

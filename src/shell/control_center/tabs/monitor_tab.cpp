@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <memory>
 #include <string>
 
@@ -116,8 +117,21 @@ std::unique_ptr<Flex> MonitorTab::create() {
 
 std::unique_ptr<Flex> MonitorTab::createHeaderActions() {
   const float scale = contentScale();
+  if (m_configService != nullptr) {
+    m_syncAllMonitors = m_configService->config().brightness.syncBrightnessOfAllMonitors;
+  }
   auto row = ui::row(
       {.align = FlexAlign::Center, .gap = Style::spaceSm * scale},
+      ui::button({
+          .out = &m_syncAllButton,
+          .glyph = m_syncAllMonitors ? "link" : "link-off",
+          .selected = m_syncAllMonitors,
+          .tooltip = i18n::tr(
+              m_syncAllMonitors ? "control-center.display.sync-all-on" : "control-center.display.sync-all-off"
+          ),
+          .onClick = [this]() { toggleSyncAllMonitors(); },
+          .configure = [scale](Button& button) { panel_button_style::configureHeaderIconButton(button, scale); },
+      }),
       ui::button({
           .out = &m_rescanButton,
           .glyph = "refresh",
@@ -135,10 +149,56 @@ std::unique_ptr<Flex> MonitorTab::createHeaderActions() {
   return row;
 }
 
+// Ganging brightness is a no-op with a single controllable panel, so the toggle only
+// earns header space once there are at least two sliders it could move together.
+bool MonitorTab::syncToggleRelevant() const {
+  if (m_brightness == nullptr) {
+    return false;
+  }
+  std::size_t controllable = 0;
+  for (const auto& display : m_brightness->displays()) {
+    if (display.controllable && ++controllable >= 2) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // The rescan only re-runs ddcutil detect, so it is meaningless without DDC/CI.
 void MonitorTab::syncHeaderActions() {
   if (m_rescanButton != nullptr) {
     m_rescanButton->setVisible(m_configService != nullptr && m_configService->config().brightness.enableDdcutil);
+  }
+  if (m_syncAllButton == nullptr) {
+    return;
+  }
+  m_syncAllButton->setVisible(syncToggleRelevant());
+  // The same key is reachable from Settings, so adopt an external change rather than
+  // letting the header drift out of step with the config.
+  if (m_configService != nullptr) {
+    const bool configured = m_configService->config().brightness.syncBrightnessOfAllMonitors;
+    if (configured != m_syncAllMonitors) {
+      m_syncAllMonitors = configured;
+      m_syncAllButton->setGlyph(m_syncAllMonitors ? "link" : "link-off");
+      m_syncAllButton->setSelected(m_syncAllMonitors);
+      m_syncAllButton->setTooltip(
+          i18n::tr(m_syncAllMonitors ? "control-center.display.sync-all-on" : "control-center.display.sync-all-off")
+      );
+    }
+  }
+}
+
+void MonitorTab::toggleSyncAllMonitors() {
+  m_syncAllMonitors = !m_syncAllMonitors;
+  if (m_configService != nullptr) {
+    m_configService->setOverride({"brightness", "sync_all_monitors"}, m_syncAllMonitors);
+  }
+  if (m_syncAllButton != nullptr) {
+    m_syncAllButton->setGlyph(m_syncAllMonitors ? "link" : "link-off");
+    m_syncAllButton->setSelected(m_syncAllMonitors);
+    m_syncAllButton->setTooltip(
+        i18n::tr(m_syncAllMonitors ? "control-center.display.sync-all-on" : "control-center.display.sync-all-off")
+    );
   }
 }
 
@@ -158,6 +218,7 @@ void MonitorTab::onClose() {
   m_cardsScroll = nullptr;
   m_cardsLayout = nullptr;
   m_rescanButton = nullptr;
+  m_syncAllButton = nullptr;
   m_cards.clear();
   m_lastDisplayListKey.clear();
 }
