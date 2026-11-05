@@ -36,6 +36,7 @@
 #include <optional>
 #include <ranges>
 #include <unordered_set>
+#include <utility>
 #include <wayland-client-core.h>
 #include <wayland-client-protocol.h>
 
@@ -3942,20 +3943,25 @@ std::string Bar::setBarAutoHideIpc(std::string_view args) {
 
   const auto parts = noctalia::ipc::splitWords(args);
   if (parts.empty() || parts.size() > 3) {
-    return "error: usage: bar-auto-hide-set <on|off|smart|true|false|1|0> [bar-name] [monitor-selector]\n";
+    return "error: usage: bar-auto-hide-set <on|off|smart|toggle|true|false|1|0> [bar-name] [monitor-selector]\n";
   }
 
   const std::string& value = parts[0];
   bool enabled = false;
   bool smart = false;
+  // `toggle` is resolved per instance below: targets can disagree about whether they are currently
+  // auto-hiding, so there is no single enabled/smart pair to compute up front.
+  bool toggle = false;
   if (value == "on" || value == "true" || value == "1") {
     enabled = true;
   } else if (value == "off" || value == "false" || value == "0") {
     enabled = false;
   } else if (value == "smart") {
     smart = true;
+  } else if (value == "toggle") {
+    toggle = true;
   } else {
-    return "error: invalid value (use on/off/smart, true/false, 1/0)\n";
+    return "error: invalid value (use on/off/smart/toggle, true/false, 1/0)\n";
   }
 
   std::optional<std::string> barName;
@@ -3972,7 +3978,31 @@ std::string Bar::setBarAutoHideIpc(std::string_view args) {
     return *collectError;
   }
 
-  auto applyTransientAutoHide = [this, enabled, smart](BarInstance& instance) {
+  // Toggling back on restores the bar's configured mode, so a `smart_auto_hide` bar returns to
+  // smart rather than to plain auto-hide. The instance's own barConfig cannot answer this: the
+  // transient disable below has already overwritten both flags on it.
+  auto configuredAutoHideMode = [this](const BarInstance& instance) -> std::pair<bool, bool> {
+    const auto& bars = m_config->config().bars;
+    const auto barIt = std::ranges::find(bars, instance.barConfig.name, &BarConfig::name);
+    if (barIt == bars.end()) {
+      return {true, false};
+    }
+    BarConfig saved = *barIt;
+    if (m_platform != nullptr) {
+      const auto& outputs = m_platform->outputs();
+      const auto outIt = std::ranges::find(outputs, instance.outputName, &WaylandOutput::name);
+      if (outIt != outputs.end()) {
+        saved = ConfigService::resolveForOutput(*barIt, *outIt);
+      }
+    }
+    // A bar that never auto-hides has no configured mode to restore; plain auto-hide is the intent.
+    if (!saved.isAutoHideEnabled()) {
+      return {true, false};
+    }
+    return {saved.autoHide, saved.smartAutoHide};
+  };
+
+  auto applyTransientAutoHide = [this](BarInstance& instance, bool enabled, bool smart) {
     auto applySurfaceSpec = [this](BarInstance& inst) {
       if (inst.surface == nullptr) {
         return;
@@ -3982,14 +4012,19 @@ std::string Bar::setBarAutoHideIpc(std::string_view args) {
       inst.surface->requestSize(spec.surfaceWidth, spec.surfaceHeight);
     };
 
+    // Read before the assignments below: the disable path needs to know whether the bar was already
+    // auto-hiding, and `autoHideDisablePending` means a previous disable is still sliding back in,
+    // so the bar counts as off even though barConfig.autoHide is still true.
+    const bool wasAutoHiding = instance.barConfig.isAutoHideEnabled() && !instance.autoHideDisablePending;
+
     instance.ipcLayoutReleased = false;
     instance.autoHideDisablePending = false;
     instance.animations.cancelForOwner(instance.slideRoot);
 
-    instance.barConfig.autoHide = enabled;
     instance.barConfig.smartAutoHide = smart;
 
     if (enabled || smart) {
+      instance.barConfig.autoHide = enabled;
       applySurfaceSpec(instance);
       if (instance.slideRoot != nullptr) {
         instance.slideRoot->setOpacity(1.0F);
@@ -4004,8 +4039,11 @@ std::string Bar::setBarAutoHideIpc(std::string_view args) {
       return;
     }
 
-    if (instance.barConfig.autoHide && instance.hideOpacity < 0.999F) {
+    if (wasAutoHiding && instance.hideOpacity < 0.999F) {
       const float current = instance.hideOpacity;
+      // Keep auto-hide semantics (slide transform, input region) until the reveal completes; the
+      // completion callback below clears both this and the pending flag.
+      instance.barConfig.autoHide = true;
       instance.autoHideDisablePending = true;
       instance.animations.animate(
           current, 1.0F, Style::animNormal, Easing::EaseOutCubic,
@@ -4049,7 +4087,17 @@ std::string Bar::setBarAutoHideIpc(std::string_view args) {
   };
 
   for (BarInstance* instance : targets) {
-    applyTransientAutoHide(*instance);
+    if (toggle) {
+      const bool hiding = instance->barConfig.isAutoHideEnabled() && !instance->autoHideDisablePending;
+      if (hiding) {
+        applyTransientAutoHide(*instance, false, false);
+      } else {
+        const auto [wantAutoHide, wantSmart] = configuredAutoHideMode(*instance);
+        applyTransientAutoHide(*instance, wantAutoHide, wantSmart);
+      }
+      continue;
+    }
+    applyTransientAutoHide(*instance, enabled, smart);
   }
   return "ok\n";
 }

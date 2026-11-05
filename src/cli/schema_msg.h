@@ -64,8 +64,9 @@ namespace noctalia::cli {
       Command{"source", "Manage plugin sources", {}, {}, {}, {}, kMsgPluginsSourceSubcommands, false},
   };
 
-  inline constexpr std::array<std::string_view, 7> kMsgBarAutoHideSetStateChoices{"on",    "off", "smart", "true",
-                                                                                  "false", "1",   "0"};
+  inline constexpr std::array<std::string_view, 8> kMsgBarAutoHideSetStateChoices{
+      "on", "off", "smart", "toggle", "true", "false", "1", "0"
+  };
   inline constexpr std::array<std::string_view, 2> kMsgBarLayerSetLayerChoices{"top", "overlay"};
   inline constexpr std::array<std::string_view, 2> kMsgEffectsProfileSetKindChoices{"output", "input"};
   inline constexpr std::array<std::string_view, 4> kMsgLogLevelSetLevelChoices{"debug", "info", "warn", "error"};
